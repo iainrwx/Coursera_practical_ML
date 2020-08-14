@@ -1,0 +1,116 @@
+---
+title: "Practical_ML_Project"
+author: "Iain Russell"
+date: "13/08/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+```{r}
+library(caret)
+library(dplyr)
+library(ggplot2)
+```
+
+## Data
+
+Load the provided training and test data files. 
+
+```{r}
+dat.train <- read.csv("~/Downloads/pml-training.csv")
+dat.test <- read.csv("~/Downloads/pml-testing.csv")
+dim(dat.train)
+dim(dat.test)
+```
+
+Split training into 2 datasets - 1 for training and 1 for validation of trained model. Keep the provided test data for final testing.
+
+```{r}
+inTrain <- createDataPartition(y=dat.train$classe, p=0.7, list=F)
+training <- dat.train[inTrain,]
+validation <- dat.train[-inTrain,]
+```
+
+## Data Pre-processing
+
+There are 160 fields in the data and it would be useful to reduce this number so a simpler model can be built with less risk of overfitting. Predictor choices are made on the training data and subsequently applied to validation and testing sets. The training data contains some fields with missing values and so these fields are discarded first - imputing missing values could be tried but the dataset is large enough to simply discard these fields. Then the remaining fields are checked for near zero variance and any that are found to satisfy this condition are also discarded. Finally there are some fields which have no predictive value (e.g. user_name), and these are also removed. After this pre-processing, approximately 50 predictors remain in the dataset which is still a considerable amount of data.
+
+```{r}
+# set missing values in training data to NA
+training[training==''] <- NA 
+# remove incomplete fields
+incomplete <- colnames(training)[!complete.cases(t(training))]
+training <- training[,!(names(training) %in% incomplete)]
+# remove fields which have near zero variance
+nzvar <- nearZeroVar(training, saveMetrics = T)
+nzvar.fields <- row.names(nzvar[nzvar$nzv == T,])
+training <- training[,!(names(training) %in% nzvar.fields)]
+# remove any remaining columns not relevant for prediction
+irrelevant <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","num_window")
+training <- training[,!(names(training) %in% irrelevant)]
+# names of predictor variables selected for the model build
+predictors <- colnames(subset(training,select=-c(classe)))
+# keep just the required predictor variables in both validation and testing sets
+validation <- validation[,c(predictors,'classe')]
+testing <- dat.test[,c(predictors,'problem_id')]
+```
+The dimensions of final training, validation and testing sets are below.
+
+```{r}
+dim(training); dim(validation); dim(testing)
+```
+
+Check that the final training and validation sets do not containing missing values.
+
+```{r}
+sum(is.na(training)); sum(is.na(validation))
+```
+
+Structure of final training data.
+
+```{r}
+str(training)
+```
+
+## Model Building
+
+A random forest prediction model using the caret package resulted in more than 2 hours of runtime to train the model. Using 5-fold cross-validation instead of bootstrap resampling reduced runtime to 30 minutes, which was further reduced to 15 minutes when principal component analysis was used to reduce the number of predictors from 52 to 18, capturing 90% of the variance in the training data.
+
+```{r}
+preProc <- preProcess(training[,!names(training) %in% 'classe'], method='pca',thresh=0.9)
+x <- predict(preProc, training[,!names(training) %in% 'classe'])
+y <- training$classe
+fitControl <- trainControl(method = "cv", number=5)
+modelFit <- train(x, y, method='rf', trControl=fitControl)
+modelFit
+```
+
+## Model Validation
+
+First the validation dataset was recalculated using information from the principal component analysis that was performed on the training dataset. Then predictions were made on the examples in the re-processed validation set.
+
+```{r}
+validationPC <- predict(preProc, validation[,!names(validation) %in% 'classe'])
+validationDF <- data.frame(pred=predict(modelFit,newdata=validationPC),obs=as.factor(validation$classe))
+```
+
+Then accuracy was computed on the validation dataset to estimate the out of sample error, since the validation data was not used in training. The out of sample accuracy is reported by the confusionMatrix function call, approximately 97% or so.
+
+```{r}
+confusionMatrix(validationDF$pred, validationDF$obs)
+```
+
+## Testing
+
+Predictions were made on the final test set, with the following results.
+
+```{r}
+testPC <- predict(preProc, testing[-53])
+predict(modelFit, newdata=testPC)
+
+```
+
