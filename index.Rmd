@@ -1,8 +1,10 @@
 ---
-title: "Untitled"
+title: "Coursera_Practical_ML"
 author: "Iain Russell"
-date: "14/08/2020"
-output: html_document
+date: "26/08/2020"
+output: 
+  html_document: 
+    keep_md: yes
 ---
 
 ```{r setup, include=FALSE}
